@@ -30,17 +30,13 @@
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineMemOperand.h"
-#include "llvm/IR/DebugLoc.h"
-#include "llvm/IR/Instructions.h"
-#include "llvm/IR/Metadata.h"
-#include "llvm/MC/MCDwarf.h"
-#include "llvm/MC/MCSymbol.h"
 #include "llvm/Support/Allocator.h"
 #include "llvm/Support/ArrayRecycler.h"
 #include "llvm/Support/AtomicOrdering.h"
 #include "llvm/Support/Compiler.h"
 #include "llvm/Support/ErrorHandling.h"
 #include "llvm/Support/Recycler.h"
+#include "llvm/Target/TargetMachine.h"
 #include <cassert>
 #include <cstdint>
 #include <memory>
@@ -52,6 +48,7 @@ namespace llvm {
 class BasicBlock;
 class BlockAddress;
 class DataLayout;
+class DebugLoc;
 class DIExpression;
 class DILocalVariable;
 class DILocation;
@@ -66,6 +63,7 @@ class MachineModuleInfo;
 class MachineRegisterInfo;
 class MCContext;
 class MCInstrDesc;
+class MCSymbol;
 class Pass;
 class PseudoSourceValueManager;
 class raw_ostream;
@@ -280,7 +278,7 @@ class MachineFunction {
   unsigned FunctionNumber;
 
   /// Alignment - The alignment of the function.
-  unsigned Alignment;
+  Align Alignment;
 
   /// ExposesReturnsTwice - True if the function calls setjmp or related
   /// functions with attribute "returns twice", but doesn't have
@@ -323,6 +321,10 @@ class MachineFunction {
 
   /// CodeView label annotations.
   std::vector<std::pair<MCSymbol *, MDNode *>> CodeViewAnnotations;
+
+  /// CodeView heapallocsites.
+  std::vector<std::tuple<MCSymbol *, MCSymbol *, const DIType *>>
+      CodeViewHeapAllocSites;
 
   bool CallsEHReturn = false;
   bool CallsUnwindInit = false;
@@ -377,8 +379,38 @@ public:
     virtual void MF_HandleRemoval(MachineInstr &MI) = 0;
   };
 
+  /// Structure used to represent pair of argument number after call lowering
+  /// and register used to transfer that argument.
+  /// For now we support only cases when argument is transferred through one
+  /// register.
+  struct ArgRegPair {
+    unsigned Reg;
+    uint16_t ArgNo;
+    ArgRegPair(unsigned R, unsigned Arg) : Reg(R), ArgNo(Arg) {
+      assert(Arg < (1 << 16) && "Arg out of range");
+    }
+  };
+  /// Vector of call argument and its forwarding register.
+  using CallSiteInfo = SmallVector<ArgRegPair, 1>;
+  using CallSiteInfoImpl = SmallVectorImpl<ArgRegPair>;
+
 private:
   Delegate *TheDelegate = nullptr;
+
+  using CallSiteInfoMap = DenseMap<const MachineInstr *, CallSiteInfo>;
+  /// Map a call instruction to call site arguments forwarding info.
+  CallSiteInfoMap CallSitesInfo;
+
+  /// A helper function that returns call site info for a give call
+  /// instruction if debug entry value support is enabled.
+  CallSiteInfoMap::iterator getCallSiteInfo(const MachineInstr *MI) {
+    assert(MI->isCall() &&
+           "Call site info refers only to call instructions!");
+
+    if (!Target.Options.EnableDebugEntryValues)
+      return CallSitesInfo.end();
+    return CallSitesInfo.find(MI);
+  }
 
   // Callbacks for insertion and removal.
   void handleInsertion(MachineInstr &MI);
@@ -442,7 +474,6 @@ public:
   /// getSubtarget - Return the subtarget for which this machine code is being
   /// compiled.
   const TargetSubtargetInfo &getSubtarget() const { return *STI; }
-  void setSubtarget(const TargetSubtargetInfo *ST) { STI = ST; }
 
   /// getSubtarget - This method returns a pointer to the specified type of
   /// TargetSubtargetInfo.  In debug builds, it verifies that the object being
@@ -489,15 +520,16 @@ public:
   const WinEHFuncInfo *getWinEHFuncInfo() const { return WinEHInfo; }
   WinEHFuncInfo *getWinEHFuncInfo() { return WinEHInfo; }
 
-  /// getAlignment - Return the alignment (log2, not bytes) of the function.
-  unsigned getAlignment() const { return Alignment; }
+  /// getAlignment - Return the alignment of the function.
+  Align getAlignment() const { return Alignment; }
 
-  /// setAlignment - Set the alignment (log2, not bytes) of the function.
-  void setAlignment(unsigned A) { Alignment = A; }
+  /// setAlignment - Set the alignment of the function.
+  void setAlignment(Align A) { Alignment = A; }
 
-  /// ensureAlignment - Make sure the function is at least 1 << A bytes aligned.
-  void ensureAlignment(unsigned A) {
-    if (Alignment < A) Alignment = A;
+  /// ensureAlignment - Make sure the function is at least A bytes aligned.
+  void ensureAlignment(Align A) {
+    if (Alignment < A)
+      Alignment = A;
   }
 
   /// exposesReturnsTwice - Returns true if the function calls setjmp or
@@ -740,6 +772,12 @@ public:
   MachineMemOperand *getMachineMemOperand(const MachineMemOperand *MMO,
                                           const AAMDNodes &AAInfo);
 
+  /// Allocate a new MachineMemOperand by copying an existing one,
+  /// replacing the flags. MachineMemOperands are owned
+  /// by the MachineFunction and need not be explicitly deallocated.
+  MachineMemOperand *getMachineMemOperand(const MachineMemOperand *MMO,
+                                          MachineMemOperand::Flags Flags);
+
   using OperandCapacity = ArrayRecycler<MachineOperand>::Capacity;
 
   /// Allocate an array of MachineOperands. This is only intended for use by
@@ -790,10 +828,7 @@ public:
     return FrameInstructions;
   }
 
-  LLVM_NODISCARD unsigned addFrameInst(const MCCFIInstruction &Inst) {
-    FrameInstructions.push_back(Inst);
-    return FrameInstructions.size() - 1;
-  }
+  LLVM_NODISCARD unsigned addFrameInst(const MCCFIInstruction &Inst);
 
   /// \name Exception Handling
   /// \{
@@ -912,6 +947,14 @@ public:
     return CodeViewAnnotations;
   }
 
+  /// Record heapallocsites
+  void addCodeViewHeapAllocSite(MachineInstr *I, const MDNode *MD);
+
+  ArrayRef<std::tuple<MCSymbol *, MCSymbol *, const DIType *>>
+  getCodeViewHeapAllocSites() const {
+    return CodeViewHeapAllocSites;
+  }
+
   /// Return a reference to the C++ typeinfo for the current function.
   const std::vector<const GlobalValue *> &getTypeInfos() const {
     return TypeInfos;
@@ -935,6 +978,35 @@ public:
   const VariableDbgInfoMapTy &getVariableDbgInfo() const {
     return VariableDbgInfos;
   }
+
+  void addCallArgsForwardingRegs(const MachineInstr *CallI,
+                                 CallSiteInfoImpl &&CallInfo) {
+    assert(CallI->isCall());
+    CallSitesInfo[CallI] = std::move(CallInfo);
+  }
+
+  const CallSiteInfoMap &getCallSitesInfo() const {
+    return CallSitesInfo;
+  }
+
+  /// Following functions update call site info. They should be called before
+  /// removing, replacing or copying call instruction.
+
+  /// Move the call site info from \p Old to \New call site info. This function
+  /// is used when we are replacing one call instruction with another one to
+  /// the same callee.
+  void moveCallSiteInfo(const MachineInstr *Old,
+                        const MachineInstr *New);
+
+  /// Erase the call site info for \p MI. It is used to remove a call
+  /// instruction from the instruction stream.
+  void eraseCallSiteInfo(const MachineInstr *MI);
+
+  /// Copy the call site info from \p Old to \ New. Its usage is when we are
+  /// making a copy of the instruction that will be inserted at different point
+  /// of the instruction stream.
+  void copyCallSiteInfo(const MachineInstr *Old,
+                        const MachineInstr *New);
 };
 
 //===--------------------------------------------------------------------===//

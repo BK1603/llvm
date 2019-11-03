@@ -396,6 +396,26 @@ to do so.
 
 .. _discuss the change/gather consensus:
 
+Obtaining Commit Access to the GitHub Repository
+------------------------------------------------
+We are currently in the process of migrating the project's source code from SVN
+to a git repository on GitHub.  We are maintaining a file in SVN to map
+SVN usernames to GitHub usernames, so we can automatically grant access to
+existing committers when we complete the migration to GitHub.  In order to
+request commit access, check out the github-usernames.txt file in meta/trunk and
+add a line in the form of $SVN_USERNAME:$GITHUB_USERNAME and commit it.  For
+example:
+
+.. code:: console
+
+  mkdir tmp-llvm-svn
+  cd tmp-llvm-svn
+  svn co https://$SVN_USERNAME@llvm.org/svn/llvm-project/meta/trunk
+  echo "$SVN_USERNAME:$GITHUB_USERNAME" >> trunk/github-usernames.txt
+  cd trunk
+  svn commit -m "Request commit access for $SVN_USERNAME"
+
+
 Making a Major Change
 ---------------------
 
@@ -732,7 +752,7 @@ effort to change licenses, which aims to solve several problems:
 * Some contributions were not submitted to LLVM due to concerns that
   the patent grant required by the project was overly broad.
 * The patent grant was unique to the LLVM Project, not written by a lawyer, and
-  was difficult to determine what was protection was provided (if any).
+  was difficult to determine what protection was provided (if any).
 
 The scope of relicensing is all code that is considered part of the LLVM
 project, including the main LLVM repository, runtime libraries (compiler_rt,

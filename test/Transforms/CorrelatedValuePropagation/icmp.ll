@@ -93,7 +93,7 @@ define i1 @test3(i32 %x, i32 %y) #0 {
 ; CHECK-NEXT:    [[CMP2:%.*]] = icmp ult i32 [[Y:%.*]], 10
 ; CHECK-NEXT:    br i1 [[CMP2]], label [[CONT2:%.*]], label [[OUT]]
 ; CHECK:       cont2:
-; CHECK-NEXT:    [[ADD:%.*]] = add i32 [[X]], [[Y]]
+; CHECK-NEXT:    [[ADD:%.*]] = add nuw nsw i32 [[X]], [[Y]]
 ; CHECK-NEXT:    br label [[CONT3:%.*]]
 ; CHECK:       cont3:
 ; CHECK-NEXT:    br label [[OUT]]
@@ -132,7 +132,7 @@ define i1 @test4(i32 %x, i32 %y) #0 {
 ; CHECK-NEXT:    [[CMP2:%.*]] = icmp ult i32 [[Y:%.*]], 10
 ; CHECK-NEXT:    br i1 [[CMP2]], label [[CONT2:%.*]], label [[OUT]]
 ; CHECK:       cont2:
-; CHECK-NEXT:    [[ADD:%.*]] = add i32 [[X]], [[Y]]
+; CHECK-NEXT:    [[ADD:%.*]] = add nuw nsw i32 [[X]], [[Y]]
 ; CHECK-NEXT:    br label [[CONT3:%.*]]
 ; CHECK:       cont3:
 ; CHECK-NEXT:    [[CMP3:%.*]] = icmp ult i32 [[ADD]], 15
@@ -173,7 +173,7 @@ define i1 @test5(i32 %x, i32 %y) #0 {
 ; CHECK-NEXT:    [[CMP2:%.*]] = icmp ult i32 [[Y:%.*]], 5
 ; CHECK-NEXT:    br i1 [[CMP2]], label [[CONT2:%.*]], label [[OUT]]
 ; CHECK:       cont2:
-; CHECK-NEXT:    [[SHIFTED:%.*]] = shl i32 [[X]], [[Y]]
+; CHECK-NEXT:    [[SHIFTED:%.*]] = shl nuw nsw i32 [[X]], [[Y]]
 ; CHECK-NEXT:    br label [[CONT3:%.*]]
 ; CHECK:       cont3:
 ; CHECK-NEXT:    br label [[OUT]]
@@ -212,7 +212,7 @@ define i1 @test6(i32 %x, i32 %y) #0 {
 ; CHECK-NEXT:    [[CMP2:%.*]] = icmp ult i32 [[Y:%.*]], 15
 ; CHECK-NEXT:    br i1 [[CMP2]], label [[CONT2:%.*]], label [[OUT]]
 ; CHECK:       cont2:
-; CHECK-NEXT:    [[SHIFTED:%.*]] = shl i32 [[X]], [[Y]]
+; CHECK-NEXT:    [[SHIFTED:%.*]] = shl nuw nsw i32 [[X]], [[Y]]
 ; CHECK-NEXT:    br label [[CONT3:%.*]]
 ; CHECK:       cont3:
 ; CHECK-NEXT:    [[CMP3:%.*]] = icmp ult i32 [[SHIFTED]], 65536

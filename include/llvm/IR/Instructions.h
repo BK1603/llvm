@@ -36,6 +36,7 @@
 #include "llvm/IR/Use.h"
 #include "llvm/IR/User.h"
 #include "llvm/IR/Value.h"
+#include "llvm/IR/ConstantRange.h"
 #include "llvm/Support/AtomicOrdering.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/ErrorHandling.h"
@@ -43,6 +44,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <utility>
 
 namespace llvm {
 
@@ -3150,6 +3152,17 @@ class SwitchInst : public Instruction {
   // Operand[2n+1] = BasicBlock to go to on match
   SwitchInst(const SwitchInst &SI);
 
+  // New oprand list format:
+  // Operand[0]   = Value to switch on
+  // Operand[1]   = Default basic block destination
+  // Operand[i+1] = i-th Succesor
+
+  // To store case ranges
+  // Ranges are stored in the form of ConstantRanges
+  // Ranges[i].first = ConstantRange
+  // Ranges[i].second = index of the succesor
+  SmallVector<std::pair<ConstantRange *, int>, 32> Ranges;
+
   /// Create a new switch instruction, specifying a value to switch on and a
   /// default destination. The number of additional cases can be specified here
   /// to make memory allocation more efficient. This constructor can also
@@ -3253,6 +3266,12 @@ public:
       assert((unsigned)Index < SI->getNumCases() &&
              "Index out the number of cases.");
       SI->setOperand(2 + Index*2, reinterpret_cast<Value*>(V));
+    }
+
+    void setRange(ConstantRange *Range) {
+      // Code to set range
+      // need to send the index too.
+      SI->Ranges.push_back(std::pair<ConstantRange *, int>(Range, getSuccessorIndex()));
     }
 
     /// Sets the new successor for current case.
@@ -3456,6 +3475,7 @@ public:
   /// This action invalidates case_end(). Old case_end() iterator will
   /// point to the added case.
   void addCase(ConstantInt *OnVal, BasicBlock *Dest);
+  void addCase(ConstantRange *Range, BasicBlock *Dest);
 
   /// This method removes the specified case and its successor from the switch
   /// instruction. Note that this operation may reorder the remaining cases at

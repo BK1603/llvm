@@ -3772,6 +3772,23 @@ void SwitchInst::addCase(ConstantInt *OnVal, BasicBlock *Dest) {
   Case.setSuccessor(Dest);
 }
 
+void SwitchInst::addCase(ConstantRange *Range, BasicBlock *Dest) {
+  unsigned NewCaseIdx = getNumCases();
+  unsigned OpNo = getNumOperands();
+
+  //check if end of array
+  if (OpNo+1 > ReservedSpace)
+    growOperands();
+
+  // Ranges.push_back(pair<ConstantRange *, int>(Range, OpNo));
+  // Op<OpNo> = Dest;
+  // Are helper classes needed?
+
+  CaseHandle Case(this, NewCaseIdx);
+  Case.setRange(Range);
+  Case.setSuccessor(Dest);
+}
+
 /// removeCase - This method removes the specified case and its successor
 /// from the switch instruction.
 SwitchInst::CaseIt SwitchInst::removeCase(CaseIt I) {
